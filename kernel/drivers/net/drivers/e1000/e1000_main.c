@@ -198,9 +198,17 @@ static void e1000_clean_tx_ring(struct e1000_adapter *adapter,
 static void e1000_clean_rx_ring(struct e1000_adapter *adapter,
 				struct e1000_rx_ring *rx_ring);
 static void e1000_set_multi(struct rtnet_device *netdev);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void e1000_update_phy_info(unsigned long data);
 static void e1000_watchdog(unsigned long data);
 static void e1000_82547_tx_fifo_stall(unsigned long data);
+#else
+static void e1000_update_phy_info(struct timer_list *t);
+static void e1000_watchdog(struct timer_list *t);
+static void e1000_82547_tx_fifo_stall(struct timer_list *t);
+#endif
+
+
 static int e1000_xmit_frame(struct rtskb *skb, struct rtnet_device *netdev);
 static int e1000_intr(rtdm_irq_t *irq_handle);
 static boolean_t e1000_clean_tx_irq(struct e1000_adapter *adapter,
@@ -847,6 +855,7 @@ static int e1000_probe(struct pci_dev *pdev,
 
 	e1000_get_bus_info(&adapter->hw);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 	init_timer(&adapter->tx_fifo_stall_timer);
 	adapter->tx_fifo_stall_timer.function = &e1000_82547_tx_fifo_stall;
 	adapter->tx_fifo_stall_timer.data = (unsigned long) adapter;
@@ -858,6 +867,12 @@ static int e1000_probe(struct pci_dev *pdev,
 	init_timer(&adapter->phy_info_timer);
 	adapter->phy_info_timer.function = &e1000_update_phy_info;
 	adapter->phy_info_timer.data = (unsigned long) adapter;
+#else
+	timer_setup(&adapter->tx_fifo_stall_timer, e1000_82547_tx_fifo_stall, 0);
+	timer_setup(&adapter->watchdog_timer, e1000_watchdog, 0);
+	timer_setup(&adapter->phy_info_timer, e1000_update_phy_info, 0);
+#endif
+
 
 	INIT_WORK(&adapter->reset_task,
 		(void (*)(struct work_struct *))e1000_reset_task);
@@ -2087,9 +2102,15 @@ e1000_set_multi(struct rtnet_device *netdev)
  * the phy */
 
 static void
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 e1000_update_phy_info(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+e1000_update_phy_info(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, phy_info_timer);
+#endif
 	e1000_phy_get_info(&adapter->hw, &adapter->phy_info);
 }
 
@@ -2099,9 +2120,15 @@ e1000_update_phy_info(unsigned long data)
  **/
 
 static void
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 e1000_82547_tx_fifo_stall(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+e1000_82547_tx_fifo_stall(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, tx_fifo_stall_timer);
+#endif
 	struct rtnet_device *netdev = adapter->netdev;
 	uint32_t tctl;
 
@@ -2140,9 +2167,15 @@ e1000_82547_tx_fifo_stall(unsigned long data)
  * @data: pointer to adapter cast into an unsigned long
  **/
 static void
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 e1000_watchdog(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+e1000_watchdog(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, watchdog_timer);
+#endif
 	struct rtnet_device *netdev = adapter->netdev;
 	struct e1000_tx_ring *txdr = adapter->tx_ring;
 	uint32_t link, tctl;

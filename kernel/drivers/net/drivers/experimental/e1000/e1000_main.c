@@ -287,10 +287,16 @@ static void e1000_clean_tx_ring(struct e1000_adapter *adapter,
 static void e1000_clean_rx_ring(struct e1000_adapter *adapter,
 				struct e1000_rx_ring *rx_ring);
 static void e1000_set_multi(struct net_device *netdev);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void e1000_update_phy_info(unsigned long data);
 static void e1000_watchdog(unsigned long data);
-static void e1000_watchdog_task(struct work_struct *work);
 static void e1000_82547_tx_fifo_stall(unsigned long data);
+#else
+static void e1000_update_phy_info(struct timer_list *t);
+static void e1000_watchdog(struct timer_list *t);
+static void e1000_82547_tx_fifo_stall(struct timer_list *t);
+#endif
+static void e1000_watchdog_task(struct work_struct *work);
 static int e1000_xmit_frame_ring(struct sk_buff *skb, struct net_device *netdev,
 				 struct e1000_tx_ring *tx_ring);
 static int e1000_xmit_frame(struct sk_buff *skb, struct net_device *netdev);
@@ -1272,6 +1278,7 @@ static int e1000_probe(struct pci_dev *pdev,
 		goto err_eeprom;
 	}
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 	init_timer(&adapter->tx_fifo_stall_timer);
 	adapter->tx_fifo_stall_timer.function = &e1000_82547_tx_fifo_stall;
 	adapter->tx_fifo_stall_timer.data = (unsigned long) adapter;
@@ -1283,6 +1290,11 @@ static int e1000_probe(struct pci_dev *pdev,
 	init_timer(&adapter->phy_info_timer);
 	adapter->phy_info_timer.function = &e1000_update_phy_info;
 	adapter->phy_info_timer.data = (unsigned long) adapter;
+#else
+	timer_setup(&adapter->tx_fifo_stall_timer, e1000_82547_tx_fifo_stall, 0);
+	timer_setup(&adapter->watchdog_timer, e1000_watchdog, 0);
+	timer_setup(&adapter->phy_info_timer, e1000_update_phy_info, 0);
+#endif
 
 	INIT_WORK(&adapter->reset_task, e1000_reset_task);
 	INIT_WORK(&adapter->watchdog_task, e1000_watchdog_task);
@@ -2931,9 +2943,15 @@ static void e1000_set_multi(struct net_device *netdev)
 
 /* Need to wait a few seconds after link up to get diagnostic information from
  * the phy */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void e1000_update_phy_info(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+e1000_update_phy_info(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, phy_info_timer);
+#endif
 	e1000_get_phy_info(&adapter->hw);
 }
 
@@ -2941,9 +2959,15 @@ static void e1000_update_phy_info(unsigned long data)
  * e1000_82547_tx_fifo_stall - Timer Call-back
  * @data: pointer to adapter cast into an unsigned long
  **/
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void e1000_82547_tx_fifo_stall(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+e1000_82547_tx_fifo_stall(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, tx_fifo_stall_timer);
+#endif
 	struct net_device *netdev = adapter->netdev;
 	u32 tctl;
 
@@ -3036,9 +3060,15 @@ static void e1000_enable_receives(struct e1000_adapter *adapter)
  * e1000_watchdog - Timer Call-back
  * @data: pointer to adapter cast into an unsigned long
  **/
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void e1000_watchdog(unsigned long data)
 {
 	struct e1000_adapter *adapter = (struct e1000_adapter *) data;
+#else
+static void e1000_watchdog(struct timer_list *t)
+{
+	struct e1000_adapter *adapter = from_timer(adapter, t, watchdog_timer);
+#endif
 
 	/* Do the rest outside of interrupt context */
 	schedule_work(&adapter->watchdog_task);
